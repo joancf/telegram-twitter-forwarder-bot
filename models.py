@@ -53,6 +53,10 @@ class TelegramChat(Model):
         auth.set_access_token(self.twitter_token, self.twitter_secret)
         return tweepy.API(auth)
 
+    def set_id(self, id):
+        auth = OAuthHandler(consumer_key, consumer_secret)
+        auth.set_access_token(self.twitter_token, self.twitter_secret)
+        return tweepy.API(auth)
 
 class Subscription(Model):
     tg_chat = ForeignKeyField(TelegramChat, related_name="subscriptions")

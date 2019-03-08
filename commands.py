@@ -8,8 +8,9 @@ from telegram.emoji import Emoji
 import tweepy
 from tweepy.auth import OAuthHandler
 from tweepy.error import TweepError
+import logging
 
-from models import Subscription
+from models import Subscription, TelegramChat
 from util import with_touched_chat, escape_markdown, markdown_twitter_usernames
 
 TIMEZONE_LIST_URL = "https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
@@ -33,6 +34,8 @@ Hello! This bot forwards you updates from twitter streams!
 Here's the commands:
 - /sub - subscribes to updates from users
 - /unsub - unsubscribes from users
+- /subChan - subscribes user to a given channel id
+- /unChan - unsubscribes user from the given channel id
 - /list  - lists current subscriptions
 - /export - sends you a /sub command that contains all current subscriptions
 - /all - shows you the latest tweets from all subscriptions
@@ -91,12 +94,61 @@ def cmd_sub(bot, update, args, chat=None):
                  )
 
     if len(successfully_subscribed) is not 0:
-        reply += "I've added your subscription to {}".format(
-                     ", ".join(successfully_subscribed)
+        reply += "I've added your subscription to {} with chat {} ".format(
+                     ", ".join(successfully_subscribed), chat.chat_id
                  )
 
     bot.reply(update, reply)
 
+@with_touched_chat
+def cmd_subChan(bot, update, args, chat=None):
+    logging.getLogger("subChan").debug("subChan for {}".format(args))
+    if len(args) < 1:
+        bot.reply(update, "Use /sub username1 chatid , get it from https://api.telegram.org/bot<botid>/getUpdates  after doing a post in the channel (public or private) with the robot disabled" )
+        return
+    tw_username = args[0]
+    chatId=args[1]
+    newchat, _created = TelegramChat.get_or_create(
+            chat_id=chatId,
+            tg_type="channel"
+        )
+    not_found = []
+    already_subscribed = []
+    successfully_subscribed = []
+    chat.chat_id =chatId
+    tw_user = bot.get_tw_user(tw_username)
+
+    if tw_user is None:
+        not_found.append(tw_username)
+        return
+
+    if Subscription.select().where(
+            Subscription.tw_user == tw_user,
+            Subscription.tg_chat == newchat).count() == 1:
+        already_subscribed.append(tw_user.full_name)
+    else:
+        Subscription.create(tg_chat=newchat, tw_user=tw_user)
+        successfully_subscribed.append(tw_user.full_name)
+
+    reply = ""
+
+    if len(not_found) is not 0:
+        reply += "Sorry, I didn't find username{} {}\n\n".format(
+                     "" if len(not_found) is 1 else "s",
+                     ", ".join(not_found)
+                 )
+
+    if len(already_subscribed) is not 0:
+        reply += "You're already subscribed to {}\n\n".format(
+                     ", ".join(already_subscribed)
+                 )
+
+    if len( successfully_subscribed ) is not 0:
+        reply += "I've added your subscription to {} with chat {} ".format(
+            ", ".join( successfully_subscribed ), chat.chat_id
+        )
+
+    bot.reply(update, reply)
 
 @with_touched_chat
 def cmd_unsub(bot, update, args, chat=None):
@@ -136,14 +188,52 @@ def cmd_unsub(bot, update, args, chat=None):
 
     bot.reply(update, reply)
 
+@with_touched_chat
+def cmd_unChan(bot, update, args, chat=None):
+    if len(args) < 2:
+        bot.reply(update, "Use /unChan username1 channel")
+        return
+    tw_username = args[0]
+    chatID=args[1]
+    not_found = []
+    successfully_unsubscribed = []
+
+    tw_user = bot.get_tw_user(tw_username)
+    newchat= TelegramChat.select().where(TelegramChat.chat_id == chatID)
+    if newchat.count()==0:
+        bot.reply("chat not found")
+        return
+    if tw_user is None or Subscription.select().where(
+            Subscription.tw_user == tw_user,
+            Subscription.tg_chat == newchat[0]).count() == 0:
+        not_found.append(tw_username)
+        bot.reply("chat and user  not found")
+        return
+
+    Subscription.delete().where(
+        Subscription.tw_user == tw_user,
+        Subscription.tg_chat == newchat[0]).execute()
+
+    successfully_unsubscribed.append(tw_user.full_name)
+
+    reply = ""
+
+    if len(not_found) is not 0:
+        reply += "I didn't find any subscription to {}\n\n".format(
+                     ", ".join(not_found)
+                 )
+
+    if len(successfully_unsubscribed) is not 0:
+        reply += "You are no longer subscribed to {}".format(
+                     ", ".join(successfully_unsubscribed)
+        )
+
+    bot.reply(update, reply)
 
 @with_touched_chat
 def cmd_list(bot, update, chat=None):
     subscriptions = list(Subscription.select().where(
                          Subscription.tg_chat == chat))
-
-    if len(subscriptions) == 0:
-        return bot.reply(update, 'You have no subscriptions yet! Add one with /sub username')
 
     subs = ['']
     for sub in subscriptions:
@@ -151,11 +241,22 @@ def cmd_list(bot, update, chat=None):
 
     subject = "This group is" if chat.is_group else "You are"
 
+    subject = subject + " subscribed to the following Twitter users:\n" +\
+         "\n - ".join(subs) + "\n\nYou can remove any of them using /unsub username"
+
+    subscriptions = list(Subscription.select().where(
+                         Subscription.tg_chat != chat))
+
+    subs = ['']
+    for sub in subscriptions:
+        subs.append(sub.tw_user.full_name + ", " + str(sub.tg_chat.chat_id) )
+
+    subject = subject + "\n grups from other chats \n"
+
     bot.reply(
         update,
         subject + " subscribed to the following Twitter users:\n" +
-        "\n - ".join(subs) + "\n\nYou can remove any of them using /unsub username")
-
+        "\n - ".join(subs) + "\n\nYou can remove any of them using /unChan username")
 
 @with_touched_chat
 def cmd_export(bot, update, chat=None):

@@ -45,17 +45,17 @@ class TwitterForwarderBot(Bot):
                 chat_id=chat.chat_id,
                 disable_web_page_preview=not photo_url,
                 text="""
-{link_preview}*{name}* ([@{screen_name}](https://twitter.com/{screen_name})) at {created_at}:
+{link_preview}*{name}* ([@{screen_name}](https://twitter.com/{screen_name})) :
 {text}
--- [Link to this Tweet](https://twitter.com/{screen_name}/status/{tw_id})
 """
+                    # -- [Enllaç a la piulada original](https://twitter.com/{screen_name}/status/{tw_id})
                     .format(
                     link_preview=photo_url,
                     text=prepare_tweet_text(tweet.text),
                     name=escape_markdown(tweet.name),
                     screen_name=tweet.screen_name,
-                    created_at=created_at,
-                    tw_id=tweet.tw_id,
+                    # created_at=created_at,
+                    # tw_id=tweet.tw_id,
                 ),
                 parse_mode=telegram.ParseMode.MARKDOWN)
 
